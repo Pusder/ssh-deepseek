@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'"
+    />
+    <title>深寻 SSH</title>
+  </head>
+  <body data-theme="dark">
+    <div id="app">
+      <!-- ============ 左侧：服务器配置列表 ============ -->
+      <aside id="sidebar">
+        <div class="sidebar-head">
+          <div class="brand">
+            <span class="brand-dot"></span>
+            <span class="brand-name">深寻 SSH</span>
+          </div>
+          <button id="btn-new-config" class="btn btn-primary btn-sm" title="新建配置 (Ctrl+N)">＋ 新建</button>
+        </div>
+
+        <div class="sidebar-search">
+          <input id="config-search" type="search" placeholder="搜索名称 / 主机 / 用户" spellcheck="false" />
+        </div>
+
+        <div id="config-list" class="config-list" tabindex="0"></div>
+
+        <div class="sidebar-foot">
+          <button id="btn-settings" class="btn btn-ghost btn-sm" title="设置">⚙ 设置</button>
+          <button id="btn-shortcuts" class="btn btn-ghost btn-sm" title="快捷键">⌨ 快捷键</button>
+        </div>
+      </aside>
+
+      <!-- ============ 右侧：终端区域 ============ -->
+      <main id="workspace">
+        <div id="tab-bar" class="tab-bar">
+          <div id="tab-list" class="tab-list"></div>
+          <div class="tab-actions">
+            <button id="btn-tab-disconnect" class="btn btn-ghost btn-sm" title="断开当前标签">断开</button>
+            <button id="btn-tab-reconnect" class="btn btn-ghost btn-sm" title="重新连接当前标签 (Ctrl+R)">重连</button>
+            <button id="btn-tab-close" class="btn btn-ghost btn-sm" title="关闭当前标签 (Ctrl+W)">✕</button>
+          </div>
+        </div>
+
+        <div id="terminal-area" class="terminal-area">
+          <div id="welcome" class="welcome">
+            <div class="welcome-card">
+              <div class="welcome-logo">深</div>
+              <h1>深寻 SSH</h1>
+              <p class="welcome-sub">Windows 桌面 SSH 客户端 · xterm.js WebGL 渲染 · 纯 TCP 直连</p>
+              <ul class="welcome-tips">
+                <li><b>双击左侧配置</b>即可打开终端并连接</li>
+                <li>右键配置可 <b>编辑 / 复制 / 删除</b></li>
+                <li>终端内 <b>Ctrl+Shift+C / Ctrl+Shift+V</b> 复制粘贴，右键菜单同效</li>
+                <li>拖动窗口边缘可即时重排终端，无残影无延迟</li>
+              </ul>
+              <div class="welcome-actions">
+                <button id="welcome-new" class="btn btn-primary">新建第一个配置</button>
+              </div>
+            </div>
+          </div>
+          <div id="terminal-stack" class="terminal-stack"></div>
+        </div>
+
+        <div id="status-bar" class="status-bar">
+          <span id="status-conn" class="status-item"><i class="dot dot-idle"></i><span>未连接</span></span>
+          <span id="status-host" class="status-item">—</span>
+          <span id="status-user" class="status-item">—</span>
+          <span id="status-size" class="status-item">—</span>
+          <span id="status-time" class="status-item">—</span>
+          <span id="status-renderer" class="status-item status-right">渲染器：初始化中</span>
+        </div>
+      </main>
+    </div>
+
+    <!-- 模态框挂载点 -->
+    <div id="modal-root"></div>
+    <!-- 右键菜单挂载点 -->
+    <div id="context-menu-root"></div>
+    <!-- 轻提示挂载点 -->
+    <div id="toast-root"></div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

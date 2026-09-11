@@ -1,0 +1,325 @@
+/* ==========================================================================
+   基础样式：CSS 变量主题、重置、按钮与通用控件
+   ========================================================================== */
+
+:root {
+  --font-ui: 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'JetBrains Mono', monospace;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --sidebar-width: 268px;
+  --tabbar-height: 38px;
+  --statusbar-height: 26px;
+
+  --transition: 120ms ease;
+}
+
+/* --------------------------- 深色主题（默认） --------------------------- */
+body[data-theme='dark'] {
+  --bg-app: #0f1115;
+  --bg-sidebar: #171a21;
+  --bg-panel: #1c2029;
+  --bg-elevated: #232833;
+  --bg-input: #12151b;
+  --bg-hover: #262c38;
+  --bg-active: #2c3340;
+  --bg-tab: #1a1e26;
+  --bg-tab-active: #232833;
+
+  --text: #dfe4ec;
+  --text-dim: #98a2b3;
+  --text-mute: #6b7480;
+  --text-inverse: #0f1115;
+
+  --border: #2a3038;
+  --border-strong: #39414d;
+
+  --accent: #4c8dff;
+  --accent-hover: #6ba1ff;
+  --accent-soft: rgba(76, 141, 255, 0.16);
+  --accent-text: #ffffff;
+
+  --ok: #3ecf8e;
+  --warn: #f5b544;
+  --err: #f0616d;
+
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+
+  --scrollbar: #363d49;
+  --scrollbar-hover: #454e5d;
+}
+
+/* --------------------------- 浅色主题 ---------------------------------- */
+body[data-theme='light'] {
+  --bg-app: #eef1f5;
+  --bg-sidebar: #f7f9fc;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #eaeef5;
+  --bg-active: #dde6f7;
+  --bg-tab: #e6eaf1;
+  --bg-tab-active: #ffffff;
+
+  --text: #1d2430;
+  --text-dim: #5b6675;
+  --text-mute: #8b95a3;
+  --text-inverse: #ffffff;
+
+  --border: #d8dee8;
+  --border-strong: #c2cad8;
+
+  --accent: #2f6fe4;
+  --accent-hover: #1f5dd0;
+  --accent-soft: rgba(47, 111, 228, 0.12);
+  --accent-text: #ffffff;
+
+  --ok: #159c62;
+  --warn: #c98100;
+  --err: #d93a48;
+
+  --shadow: 0 8px 28px rgba(24, 39, 75, 0.18);
+  --shadow-sm: 0 2px 8px rgba(24, 39, 75, 0.12);
+
+  --scrollbar: #c4ccd9;
+  --scrollbar-hover: #aab4c4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* ------------------------------ 滚动条 -------------------------------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+  background-clip: content-box;
+}
+
+/* ------------------------------ 按钮 ---------------------------------- */
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    color var(--transition);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1.2;
+}
+.btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn-sm {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btn-danger {
+  background: transparent;
+  border-color: var(--err);
+  color: var(--err);
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+}
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: transparent;
+}
+
+/* ------------------------------ 表单 ---------------------------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.field > label {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.field .hint {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.field-row {
+  display: flex;
+  gap: 10px;
+}
+.field-row > .field {
+  flex: 1;
+}
+.field-row > .field.narrow {
+  flex: 0 0 110px;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='number'],
+input[type='search'],
+select,
+textarea {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  outline: none;
+  transition:
+    border-color var(--transition),
+    box-shadow var(--transition);
+  width: 100%;
+  user-select: text;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-mute);
+}
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.checkbox-row input {
+  margin: 0;
+}
+
+.input-with-btn {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* --------------------------- 状态点 / 徽标 ---------------------------- */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+  background: var(--text-mute);
+}
+.dot-idle {
+  background: var(--text-mute);
+}
+.dot-connecting {
+  background: var(--warn);
+  animation: pulse 1s ease-in-out infinite;
+}
+.dot-connected {
+  background: var(--ok);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 60%, transparent);
+}
+.dot-error {
+  background: var(--err);
+}
+.dot-disconnected {
+  background: var(--text-mute);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.hidden {
+  display: none !important;
+}

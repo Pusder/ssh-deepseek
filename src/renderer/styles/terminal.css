@@ -1,0 +1,137 @@
+/* ==========================================================================
+   终端专项样式：xterm 覆盖、右键菜单、轻提示
+   ========================================================================== */
+
+/* WebGL 渲染层由 xterm 自己管理尺寸；这里只做像素对齐，避免缩放时出现 1px 缝隙或模糊 */
+.term-pane .xterm-screen canvas {
+  display: block;
+}
+
+/* 隐藏 xterm 的辅助元素（无障碍文本域）对布局的干扰 */
+.xterm .xterm-helpers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+}
+
+/* 拖动窗口期间禁用一切动画/过渡，避免与终端重排抢占帧 */
+body.resizing * {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* ------------------------------ 右键菜单 ------------------------------ */
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 178px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  font-size: 12.5px;
+  animation: ctx-in 90ms ease-out;
+}
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ctx-item:hover {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.ctx-item:hover .ctx-key {
+  color: color-mix(in srgb, var(--accent-text) 80%, transparent);
+}
+.ctx-item.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.ctx-item.danger:hover {
+  background: var(--err);
+  color: #fff;
+}
+.ctx-key {
+  font-size: 11px;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* ------------------------------ 轻提示 -------------------------------- */
+#toast-root {
+  position: fixed;
+  right: 18px;
+  bottom: 40px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+.toast {
+  min-width: 190px;
+  max-width: 380px;
+  padding: 9px 13px;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+  color: var(--text);
+  animation: toast-in 140ms ease-out;
+  word-break: break-word;
+}
+.toast.ok {
+  border-left-color: var(--ok);
+}
+.toast.warn {
+  border-left-color: var(--warn);
+}
+.toast.err {
+  border-left-color: var(--err);
+}
+.toast.out {
+  animation: toast-out 160ms ease-in forwards;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}

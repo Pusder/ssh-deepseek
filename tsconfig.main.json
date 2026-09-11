@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "sourceMap": false,
+    "noEmitOnError": true,
+    "composite": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo-main",
+    "types": ["node"],
+    "noUnusedLocals": false
+  },
+  "include": ["src/main/**/*.ts"]
+}

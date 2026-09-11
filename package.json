@@ -1,0 +1,45 @@
+{
+  "name": "deepseek-ssh",
+  "productName": "深寻 SSH",
+  "version": "1.0.0",
+  "description": "Windows 桌面 SSH 客户端（Xshell 基本功能替代品）",
+  "author": "DeepSeek SSH",
+  "license": "MIT",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "build": "npm run clean && npm run build:main && npm run build:preload && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:preload": "tsc -p tsconfig.preload.json",
+    "build:renderer": "vite build",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "test:ssh": "electron test/ssh-selftest.js",
+    "test:gui": "electron test/gui-e2e.js",
+    "test:ui": "electron test/welcome-click-test.js",
+    "test:icon": "electron test/packaged-icon-test.js",
+    "test": "npm run build && npm run test:ssh && npm run test:ui && npm run test:gui",
+    "test:all": "npm test && npm run test:icon",
+    "pack": "npm run build && electron-builder --win --dir",
+    "dist": "npm run build && electron-builder --win",
+    "dist:portable": "npm run build && electron-builder --win portable"
+  },
+  "dependencies": {
+    "@xterm/addon-canvas": "^0.7.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "ssh2": "^1.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ssh2": "^1.15.1",
+    "electron": "28.3.3",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}

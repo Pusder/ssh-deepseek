@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "sourceMap": false,
+    "noEmitOnError": true,
+    "composite": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo-preload",
+    "types": ["node"],
+    "noUnusedLocals": false
+  },
+  "include": ["src/preload/**/*.ts", "src/main/types.ts", "src/main/ipc.ts"]
+}

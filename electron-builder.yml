@@ -1,0 +1,57 @@
+appId: com.deepseek.ssh
+productName: 深寻SSH
+copyright: Copyright © 2024 DeepSeek SSH
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/{.git,.github,test,tests,example,examples,docs,doc}/**'
+# 图标随包进入 resources 目录，供主进程运行时显式设置窗口/任务栏图标
+extraResources:
+  - from: build/icon.ico
+    to: icon.ico
+# 打包完成后把图标与版本信息写入 exe 资源（见 scripts/after-pack.js）
+afterPack: scripts/after-pack.js
+asar: true
+compression: normal
+# 依赖均为纯 JS，无需按 Electron ABI 重建原生模块，打包更快
+npmRebuild: false
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.ico
+  # 未配置代码签名证书。
+  # electron-builder 自带的资源改写会下载 winCodeSign 并解压 macOS 符号链接，
+  # 在「非管理员且未开启开发者模式」的 Windows 上必然失败；因此关闭它，
+  # 改由 afterPack 钩子用 rcedit 直接写入 exe 图标（效果相同且无此限制）。
+  signAndEditExecutable: false
+  signtoolOptions:
+    sign: null
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 深寻SSH
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  # 不无条件删除用户数据：改为卸载时询问用户（见 build/uninstall.nsh 的 customUnInstall）
+  deleteAppDataOnUninstall: false
+  include: build/uninstall.nsh
+  language: '2052'
+  # 产物名用 ASCII，避免中文文件名在部分下载/传输场景下出问题
+  artifactName: DeepSeekSSH-${version}-setup.${ext}
+portable:
+  artifactName: DeepSeekSSH-${version}-portable.${ext}
+  unpackDirName: DeepSeekSSH
+  requestExecutionLevel: user
