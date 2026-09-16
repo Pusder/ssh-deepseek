@@ -24,6 +24,15 @@
   flex: 0 0 auto;
 }
 
+/* 折叠按钮加入后保持「品牌居左、新建+折叠居右」的布局 */
+.sidebar-head #btn-new-config {
+  order: 2;
+  margin-left: auto;
+}
+.sidebar-head #btn-sidebar-collapse {
+  order: 3;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -431,4 +440,226 @@ body.resizing .xterm .xterm-viewport {
 .status-right {
   margin-left: auto;
   color: var(--text-mute);
+}
+
+/* ==========================================================================
+   侧边栏折叠 / 右侧工具面板
+   ========================================================================== */
+
+/* --------------------------- 侧边栏折叠 -------------------------------- */
+body.sidebar-collapsed #sidebar {
+  display: none;
+}
+
+/* 折叠后悬浮在窗口左上角的展开按钮 */
+#btn-sidebar-expand {
+  position: fixed;
+  top: 6px;
+  left: 8px;
+  z-index: 500;
+  display: none;
+}
+body.sidebar-collapsed #btn-sidebar-expand {
+  display: inline-flex;
+}
+
+/* --------------------------- 右侧工具面板 ------------------------------- */
+#tools-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 264px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/**
+ * 面板打开时终端栈与欢迎页让出右侧空间。
+ * 终端栈是 absolute 定位（不能用 flex 挤压），因此通过 right 内缩实现；
+ * 让位后由渲染层显式触发一次 fit()，保证行列数与新宽度一致。
+ */
+body.tools-open #terminal-stack {
+  right: 264px;
+}
+body.tools-open .welcome {
+  right: 264px;
+}
+
+.tools-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.tools-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+}
+
+.tool-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.tool-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+.tool-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tool-usage-toggle {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.tool-usage {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 9px;
+  max-height: 46vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  scrollbar-width: thin;
+}
+
+.tool-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.tool-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 7px;
+  font-family: var(--font-mono);
+}
+.tool-row .btn {
+  flex: 0 0 auto;
+}
+
+/* 单编区：行内控件 / 快捷命令网格 / 盘符窄输入 */
+.tool-inline {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.tool-inline input,
+.tool-inline select {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 7px;
+  font-family: var(--font-mono);
+}
+.tool-inline .tool-drive {
+  flex: 0 0 56px;
+}
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.tool-grid .btn {
+  justify-content: center;
+}
+
+.tool-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-mute);
+}
+
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 42vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.tool-group {
+  font-size: 11px;
+  color: var(--text-mute);
+  margin-top: 5px;
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-entry {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--transition);
+}
+.tool-entry:hover {
+  background: var(--bg-hover);
+}
+
+.tool-main-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+/* 弹窗内的路径 / 命令预览 */
+.tool-preview {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  word-break: break-all;
+  user-select: text;
+  line-height: 1.6;
 }

@@ -5,11 +5,6 @@ node_modules/
 dist/
 release/
 
-# build/ holds build resources: the icon is regenerable, the NSIS include is source.
-build/*.ico
-build/*.png
-!build/uninstall.nsh
-
 # ---------------- Local caches (npm / Electron / electron-builder) ----------------
 .npm-cache/
 .electron-cache/
@@ -25,3 +20,5 @@ test/*.log
 *.log
 .DS_Store
 Thumbs.db
+
+ssh-deepseek-changes.patch

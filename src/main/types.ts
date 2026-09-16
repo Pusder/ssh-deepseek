@@ -63,6 +63,12 @@ export interface AppSettings {
   cursorBlink: boolean;
   /** 失去焦点时是否仍发送输入 */
   keepAliveOnBlur: boolean;
+  /** SSH 传输层：内置 ssh2 库（默认）或调用系统 ssh.exe（公司管控软件可能只放行系统客户端） */
+  transport: 'ssh2' | 'systemSsh';
+  /** 左侧边栏是否折叠 */
+  sidebarCollapsed: boolean;
+  /** 右侧工具面板（项目导航 / 编译命令）是否显示 */
+  showToolsPanel: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -75,6 +81,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cursorStyle: 'bar',
   cursorBlink: true,
   keepAliveOnBlur: false,
+  transport: 'ssh2',
+  sidebarCollapsed: false,
+  showToolsPanel: true,
 };
 
 /** 会话状态 */

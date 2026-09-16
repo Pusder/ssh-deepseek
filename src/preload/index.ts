@@ -84,6 +84,8 @@ const api = {
   /** 主进程实际解析到的应用图标路径（null 表示未找到，将回退到 exe 内嵌图标） */
   getIconPath: (): Promise<string | null> => ipcRenderer.invoke(IPC.appIconPath),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.openExternal, url),
+  /** 用系统文件管理器打开本地目录；返回空串表示成功，否则为错误文案 */
+  openPath: (path: string): Promise<string> => ipcRenderer.invoke(IPC.appOpenPath, path),
   /** 主进程剪贴板兜底：navigator.clipboard 不可用时使用 */
   readClipboardText: (): string => clipboard.readText(),
   writeClipboardText: (text: string): void => clipboard.writeText(text),

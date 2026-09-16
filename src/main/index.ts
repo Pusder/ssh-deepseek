@@ -297,6 +297,8 @@ function registerIpc(): void {
     return result.filePaths[0];
   });
   ipcMain.handle(IPC.openExternal, (_e, url: string) => openExternal(String(url)));
+  // 用系统文件管理器打开本地目录（失败时返回错误文案，成功返回空串）
+  ipcMain.handle(IPC.appOpenPath, (_e, p: string) => shell.openPath(String(p)));
 }
 
 /* -------------------------------------------------------------------- */

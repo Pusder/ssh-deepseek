@@ -13,9 +13,10 @@ import { confirmDialog } from './dialogs';
 import { Sidebar } from './sidebar';
 import { TabManager } from './tabs';
 import { TerminalTab, type TerminalTabCallbacks } from './terminal';
+import { ToolsPanel } from './tools-panel';
 import { applyUiTheme, getTheme, nextTheme } from './themes';
 import { toast } from './toast';
-import { clamp, formatDuration, need } from './util';
+import { clamp, el, formatDuration, need } from './util';
 
 /* ===================================================================== */
 /* 应用状态                                                               */
@@ -25,6 +26,7 @@ let settings: AppSettings = { ...DEFAULT_SETTINGS };
 let configs: SshConfig[] = [];
 let tabs: TabManager;
 let sidebar: Sidebar;
+let toolsPanel: ToolsPanel;
 
 /** 当前标签的会话连接时间，用于状态栏计时 */
 let activeConnectedAt = 0;
@@ -42,13 +44,15 @@ async function boot(): Promise<void> {
   const tabList = need<HTMLElement>('#tab-list');
   const welcome = need<HTMLElement>('#welcome');
 
+  // 状态栏右下角的「渲染器 / 回看行数」小字空间紧张，按需求整体移除
+  document.getElementById('status-renderer')?.remove();
+
   /* ---------------------------- 标签管理 ---------------------------- */
   tabs = new TabManager(tabList, terminalStack, {
     onActiveChange(tab) {
       welcome.classList.toggle('hidden', !!tab);
-      updateStatusBar(tab);
-      updateTabButtons();
-      updateWindowTitle(tab);
+      refreshActiveSessionUi();
+      toolsPanel?.applyHost(tab?.config.host ?? '');
       if (tab?.isSearchOpen) tab.toggleSearch(false);
     },
     onTabClosed() {
@@ -87,6 +91,44 @@ async function boot(): Promise<void> {
       },
     },
   );
+
+  /* --------------------------- 右侧工具面板 -------------------------- */
+  toolsPanel = new ToolsPanel({
+    getActiveTab: () => tabs.active ?? null,
+    onHide: () => void setToolsPanelVisible(false),
+  });
+  terminalArea.appendChild(toolsPanel.root);
+
+  // 页签栏右侧的「工具」开关：显示 / 隐藏右侧工具面板
+  const toolsToggle = el('button', {
+    className: 'btn btn-ghost btn-sm',
+    text: '工具',
+    title: '显示 / 隐藏右侧工具面板（项目导航、编译命令）',
+  });
+  toolsToggle.addEventListener('click', () => void setToolsPanelVisible(!settings.showToolsPanel));
+  const tabActions = document.querySelector('.tab-actions');
+  if (tabActions) tabActions.insertBefore(toolsToggle, tabActions.firstChild);
+
+  /* --------------------------- 侧边栏折叠 --------------------------- */
+  const collapseBtn = el('button', {
+    className: 'btn btn-ghost btn-sm',
+    text: '◀',
+    attrs: { id: 'btn-sidebar-collapse' },
+    title: '折叠侧栏',
+  });
+  collapseBtn.addEventListener('click', () => void setSidebarCollapsed(true));
+  const sidebarHead = document.querySelector('.sidebar-head');
+  if (sidebarHead) sidebarHead.appendChild(collapseBtn);
+
+  // 折叠后悬浮在左上角的展开按钮
+  const expandBtn = el('button', {
+    className: 'btn btn-sm',
+    text: '☰',
+    attrs: { id: 'btn-sidebar-expand' },
+    title: '展开侧栏',
+  });
+  expandBtn.addEventListener('click', () => void setSidebarCollapsed(false));
+  document.body.appendChild(expandBtn);
 
   /* --------------------------- 终端尺寸联动 -------------------------- */
   const observe = new ResizeObserver(() => {
@@ -137,7 +179,7 @@ async function boot(): Promise<void> {
       connectedAtMap.set(event.sessionId, Date.now());
       if (tabs.active?.id === tab.id) activeConnectedAt = Date.now();
     }
-    if (tabs.active?.id === tab.id) updateStatusBar(tab);
+    if (tabs.active?.id === tab.id) refreshActiveSessionUi();
     syncSidebarActive();
   });
 
@@ -148,7 +190,7 @@ async function boot(): Promise<void> {
     tab.handleEnded(event);
     if (tabs.active?.id === tab.id) {
       activeConnectedAt = 0;
-      updateStatusBar(tab);
+      refreshActiveSessionUi();
     }
     // 状态可能早已是 disconnected（onStatus 因状态未变化而不触发），
     // 这里必须无条件刷新一次按钮与侧栏，否则断开后按钮仍停留在「可点」状态。
@@ -198,9 +240,11 @@ async function boot(): Promise<void> {
   /* --------------------------- 初始化数据 --------------------------- */
   settings = await api.getSettings();
   applyUiTheme(settings.theme);
+  applySidebarCollapsed(settings.sidebarCollapsed);
+  toolsPanel.setVisible(settings.showToolsPanel);
+  toolsPanel.applyHost(tabs.active?.config.host ?? '');
   await refreshConfigs();
   updateStatusBar(null);
-  updateStatusBarRenderer();
   installE2EHooks();
 
   // 每秒刷新一次状态栏计时
@@ -260,7 +304,7 @@ async function connectConfig(config: SshConfig): Promise<void> {
 const terminalCallbacks: TerminalTabCallbacks = {
   onStatus(tab, status) {
     tabs.updateStatus(tab, status);
-    if (tabs.active?.id === tab.id) updateStatusBar(tab);
+    if (tabs.active?.id === tab.id) refreshActiveSessionUi();
     syncSidebarActive();
   },
   onOutput() {
@@ -406,16 +450,16 @@ async function openSettings(): Promise<void> {
   const result = await openSettingsDialog(settings);
   if (result.saved) {
     /**
-     * 保存路径必须采用对话框返回的设置来刷新界面。
+     * 保存路径必须真正落库，再用保存结果刷新界面。
      *
-     * 之前的写法是保存后重新 getSettings() 再应用，一旦「写入」与「回读」之间出现任何
-     * 时序差异（例如另一次写入覆盖、或回读拿到旧快照），界面就会被旧主题覆盖，
-     * 表现为「提示设置已保存，但主题没变」。对话框返回值就是本次保存的意图，直接生效。
+     * 这里曾经只把对话框返回值赋给内存变量（没有调用 saveSettings），
+     * 设置在应用重启后全部回退；也曾有过「保存后重新 getSettings() 再应用」
+     * 的写法，一旦「写入」与「回读」之间出现时序差异，界面就会被旧值覆盖。
+     * saveSettings 的返回值即主进程确认落库后的最新设置，直接采用即可。
      */
-    settings = { ...settings, ...result.settings };
+    settings = await api.saveSettings({ ...result.settings });
     applyUiTheme(settings.theme);
     tabs.updateSettings(settings);
-    updateStatusBarRenderer();
     toast('设置已保存', 'ok');
     const active = tabs.active;
     if (active) updateStatusBar(active);
@@ -520,21 +564,26 @@ function updateStatusBar(tab: TerminalTab | null): void {
   timeEl.textContent = activeConnectedAt ? `已连接 ${formatDuration(Date.now() - activeConnectedAt)}` : '—';
 }
 
-function updateStatusBarRenderer(): void {
-  const node = document.getElementById('status-renderer');
-  if (!node) return;
-  const active = tabs?.active;
-  const label = active ? active.rendererName : '—';
-  node.textContent = `渲染器：${label} · 回看 ${settings.scrollback} 行`;
-}
-
 function updateTabButtons(): void {
   const has = tabs.count > 0;
   const connected = tabs.active?.currentStatus === 'connected';
   need<HTMLButtonElement>('#btn-tab-close').disabled = !has;
   need<HTMLButtonElement>('#btn-tab-reconnect').disabled = !has;
   need<HTMLButtonElement>('#btn-tab-disconnect').disabled = !connected;
-  updateStatusBarRenderer();
+}
+
+/**
+ * 所有状态类 UI 的单源刷新：窗口标题 / 状态栏 / 页签按钮。
+ * 曾经标题只在「切换标签」时更新，连接成功后标题一直停留在「已断开」；
+ * 现在任何状态事件（onStatus / onSessionEnded / onActiveChange）都走这里，
+ * 四个界面（标题、状态栏、页签圆点、侧栏徽标——后者见 syncSidebarActive）
+ * 永远派生自同一个 tab.currentStatus，不会再出现互相矛盾的状态。
+ */
+function refreshActiveSessionUi(): void {
+  const tab = tabs.active;
+  updateWindowTitle(tab);
+  updateStatusBar(tab);
+  updateTabButtons();
 }
 
 function updateWindowTitle(tab: TerminalTab | null): void {
@@ -543,8 +592,38 @@ function updateWindowTitle(tab: TerminalTab | null): void {
     return;
   }
   const status = tab.currentStatus;
-  const suffix = status === 'connected' ? '' : ' - 已断开';
+  const suffix =
+    status === 'connected'
+      ? ''
+      : status === 'connecting'
+        ? ' - 连接中'
+        : status === 'error'
+          ? ' - 连接失败'
+          : ' - 已断开';
   document.title = `${tab.displayName}${suffix} — 深寻 SSH`;
+}
+
+/* ===================================================================== */
+/* 面板折叠                                                               */
+/* ===================================================================== */
+
+function applySidebarCollapsed(collapsed: boolean): void {
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+}
+
+/** 折叠/展开侧栏并落库（必须走 saveSettings，否则重启后回退） */
+async function setSidebarCollapsed(collapsed: boolean): Promise<void> {
+  applySidebarCollapsed(collapsed);
+  settings = await api.saveSettings({ sidebarCollapsed: collapsed });
+}
+
+/** 显示/隐藏右侧工具面板并落库 */
+async function setToolsPanelVisible(visible: boolean): Promise<void> {
+  toolsPanel.setVisible(visible);
+  settings = await api.saveSettings({ showToolsPanel: visible });
+  // 面板内缩 terminal-stack（absolute 定位）不会触发终端区的 ResizeObserver，
+  // 这里显式补一次 fit，保证行列数与新宽度一致
+  tabs.active?.fitNow();
 }
 
 /* ===================================================================== */

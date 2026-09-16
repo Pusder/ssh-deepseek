@@ -42,6 +42,8 @@ export interface DshSshBridge {
 
   pickPrivateKey(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
+  /** 用系统文件管理器打开本地目录；返回空串表示成功，否则为错误文案 */
+  openPath(path: string): Promise<string>;
   /** 主进程实际解析到的应用图标路径（null 表示回退到 exe 内嵌图标） */
   getIconPath(): Promise<string | null>;
   readClipboardText(): string;

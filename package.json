@@ -1,7 +1,7 @@
 {
   "name": "deepseek-ssh",
   "productName": "深寻 SSH",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Windows 桌面 SSH 客户端（Xshell 基本功能替代品）",
   "author": "DeepSeek SSH",
   "license": "MIT",
@@ -27,6 +27,7 @@
     "dist:portable": "npm run build && electron-builder --win portable"
   },
   "dependencies": {
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.14.1",
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.15.0",

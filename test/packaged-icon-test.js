@@ -148,8 +148,8 @@ app.whenReady().then(async () => {
 
     const exePath = path.join(UNPACKED, '深寻SSH.exe');
     const icoPath = path.join(ROOT, 'build', 'icon.ico');
-    const portablePath = path.join(ROOT, 'release', 'DeepSeekSSH-1.0.0-portable.exe');
-    const setupPath = path.join(ROOT, 'release', 'DeepSeekSSH-1.0.0-setup.exe');
+    const portablePath = path.join(ROOT, 'release', 'DeepSeekSSH-1.1.0-portable.exe');
+    const setupPath = path.join(ROOT, 'release', 'DeepSeekSSH-1.1.0-setup.exe');
 
     check('主程序 exe 存在', fs.existsSync(exePath), exePath);
     const want = icoImageSizes(icoPath);

@@ -16,8 +16,12 @@ extraResources:
 # 打包完成后把图标与版本信息写入 exe 资源（见 scripts/after-pack.js）
 afterPack: scripts/after-pack.js
 asar: true
+# node-pty 是原生模块，.node 二进制无法从 asar 包内加载，必须解包到磁盘
+asarUnpack:
+  - '**/node_modules/@homebridge/node-pty-prebuilt-multiarch/**'
 compression: normal
-# 依赖均为纯 JS，无需按 Electron ABI 重建原生模块，打包更快
+# node-pty 基于 N-API（node-addon-api），预编译产物对 Electron/Node 通用，
+# 无需按 ABI 重建，保持 false 打包更快
 npmRebuild: false
 win:
   target:

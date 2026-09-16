@@ -102,3 +102,21 @@ let uidCounter = 0;
 export function uid(prefix = 'id'): string {
   return `${prefix}-${++uidCounter}`;
 }
+
+/**
+ * 远端路径加引号（探测命令用）。
+ *
+ * 规则（实测 bash 行为）：
+ * - `~'MTK'` 这种「引号紧跟 ~」的形态不会发生 tilde 展开，必须避免；
+ * - 无特殊字符的路径不加引号原样输出，`~/MTK` 自然展开，最稳；
+ * - 含空格/特殊字符才加引号，此时 ~ 用 `~/'MTK'` 形态（~ 后紧跟 /，再接引号）。
+ */
+export function quoteRemotePath(p: string): string {
+  const trimmed = p.trim();
+  if (!/[\s'"$`&;(){}?*\\|<>#]/.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('~')) {
+    const rest = trimmed.slice(1).replace(/^\/+/, '');
+    return `~/'${rest.replace(/'/g, `'\\''`)}'`;
+  }
+  return `'${trimmed.replace(/'/g, `'\\''`)}'`;
+}

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { IPC } from './ipc';
 import { getStore } from './store';
+import { shouldMarkConnected } from './ssh-status';
 import {
   SessionEndedEvent,
   SessionMeta,
@@ -14,6 +15,15 @@ import {
   TermSize,
 } from './types';
 
+/** node-pty 伪终端的最小接口（惰性加载原生模块，避免顶层依赖） */
+interface PtyLike {
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(): void;
+  onData(callback: (data: string) => void): void;
+  onExit(callback: (event: { exitCode: number; signal?: number }) => void): void;
+}
+
 /** 单次 SSH 会话 */
 interface Session {
   id: string;
@@ -21,6 +31,8 @@ interface Session {
   status: SessionStatus;
   startedAt: number;
   client: Client | null;
+  /** 系统 ssh.exe 传输层的伪终端（transport=systemSsh 时使用） */
+  term: PtyLike | null;
   stream: ClientChannel | null;
   /** 与渲染进程相连的消息端口（终端数据专用通道） */
   port: Electron.MessagePortMain | null;
@@ -130,6 +142,7 @@ export class SessionManager {
       status: 'connecting',
       startedAt: Date.now(),
       client: null,
+      term: null,
       stream: null,
       port: null,
       cols: clampInt(size?.cols, 2, 1000, 80),
@@ -146,6 +159,8 @@ export class SessionManager {
       peerPort: null,
     };
     this.sessions.set(sessionId, session);
+    // 显式广播初始状态：渲染层本地也会自设 connecting，但事件保持同源以免对不上
+    this.setStatus(session, 'connecting');
 
     /**
      * 立即建立数据通道，并把「对端端口」暂存起来等渲染进程来取。
@@ -165,7 +180,17 @@ export class SessionManager {
 
   write(sessionId: string, data: Uint8Array | string): void {
     const s = this.sessions.get(sessionId);
-    if (!s?.stream || s.stream.destroyed) return;
+    if (!s) return;
+    if (s.term) {
+      // ConPTY 传输层：输入走伪终端
+      try {
+        s.term.write(typeof data === 'string' ? data : Buffer.from(data).toString('utf8'));
+      } catch (err) {
+        console.error('[session] 写入伪终端失败', err);
+      }
+      return;
+    }
+    if (!s.stream || s.stream.destroyed) return;
     try {
       const buf = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
       if (buf.length) s.stream.write(buf);
@@ -179,6 +204,15 @@ export class SessionManager {
     if (!s) return;
     s.cols = clampInt(size?.cols, 2, 1000, s.cols);
     s.rows = clampInt(size?.rows, 1, 1000, s.rows);
+    if (s.term) {
+      // ConPTY 传输层：直接调整伪终端尺寸，由 ssh 通知远端
+      try {
+        s.term.resize(s.cols, s.rows);
+      } catch (err) {
+        console.warn('[session] pty resize 失败', err);
+      }
+      return;
+    }
     this.applyWindowSize(s);
     // 重开一个重试窗口：万一服务端此刻还没挂上 window-change 监听，
     // 这次调整会在随后的重试中补发，不会丢失。
@@ -384,6 +418,12 @@ export class SessionManager {
       `\x1b[38;5;245m正在连接 ${cfg.username ? cfg.username + '@' : ''}${cfg.host}:${cfg.port} ...\x1b[0m\r\n`,
     );
 
+    // 传输层选择：系统 ssh.exe（应对按进程放行内网连接的公司管控软件）
+    if (store.getSettings().transport === 'systemSsh') {
+      this.connectViaSshExe(s);
+      return;
+    }
+
     let config: ConnectConfig;
     try {
       config = await this.buildConnectConfig(cfg, s);
@@ -553,7 +593,163 @@ export class SessionManager {
     return config;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* 系统 ssh.exe 传输层                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * 为什么存在这一层：部分公司管控软件按「发起连接的进程」放行内网访问，
+   * 内置 ssh2 库跑在未签名的 Electron 进程里，连接可能在 SSH 版本交换前
+   * 就被掐断；而 Windows 自带的 ssh.exe（微软签名）通常被放行。
+   *
+   * 本传输层在 ConPTY 伪终端里运行系统 ssh.exe，与用户手动在 PowerShell
+   * 敲 ssh 的形态完全一致：认证提示直接出现在终端里，由传输层识别提示
+   * 后自动填入密码/口令；窗口尺寸变更经伪终端实时同步给远端。
+   *
+   * 已知限制：
+   * - 主机指纹由 OpenSSH 自己的 known_hosts 管理（首次连接自动信任），
+   *   与内置传输层的指纹库相互独立；
+   * - 依赖 Windows 10 1809+ 自带的 OpenSSH 客户端。
+   */
+  private connectViaSshExe(s: Session): void {
+    const cfg = s.config;
+
+    const sshExe = resolveSshExe();
+    if (!sshExe) {
+      this.failEarly(s, '未找到系统 ssh.exe（需要 Windows 10 1809+ 自带的 OpenSSH 客户端）');
+      return;
+    }
+
+    let args: string[];
+    try {
+      args = buildSshExeArgs(cfg);
+    } catch (err) {
+      this.failEarly(s, errMessage(err));
+      return;
+    }
+
+    this.notice(s, '\x1b[38;5;245m（传输层：系统 ssh.exe）\x1b[0m\r\n');
+
+    // 惰性加载原生模块：仅 systemSsh 传输层需要，加载失败不影响内置 ssh2 传输层
+    let ptySpawn: (file: string, args: string[], options: Record<string, unknown>) => PtyLike;
+    try {
+      ptySpawn = (require('@homebridge/node-pty-prebuilt-multiarch') as {
+        spawn: typeof ptySpawn;
+      }).spawn;
+    } catch (err) {
+      this.failEarly(s, `加载 node-pty 失败：${errMessage(err)}`);
+      return;
+    }
+
+    let term: PtyLike;
+    try {
+      term = ptySpawn(sshExe, args, {
+        name: 'xterm-256color',
+        cols: s.cols,
+        rows: s.rows,
+        env: { ...process.env } as Record<string, string>,
+      });
+    } catch (err) {
+      this.failEarly(s, `无法启动系统 ssh.exe：${errMessage(err)}`);
+      return;
+    }
+    s.term = term;
+
+    let gotOutput = false;
+    let authPromptSeen = false;
+    let passwordSent = false;
+    let passphraseSent = false;
+    // 保留输出尾部用于识别认证提示（提示可能与前一段输出分片到达）
+    let tail = '';
+
+    const markConnected = (): void => {
+      if (s.finished || s.closing || s.status !== 'connecting') return;
+      this.setStatus(s, 'connected');
+      this.notice(s, `\x1b[32m● 已连接 ${cfg.host}:${cfg.port}\x1b[0m\r\n`);
+    };
+
+    const watchdog = setTimeout(() => {
+      if (!gotOutput && !s.finished && !s.closing) {
+        this.failEarly(s, '连接超时：系统 ssh.exe 25 秒内无任何响应');
+      }
+    }, 25000);
+
+    term.onData((data: string) => {
+      if (!gotOutput) {
+        gotOutput = true;
+        clearTimeout(watchdog);
+        /**
+         * 兜底计时：认证提示的形态千差万别（自定义键盘交互文案、配置了私钥
+         * 口令但服务端未启用等），提示识别一旦失手，上面的事件判定会让状态
+         * 永久卡在「连接中」——用户终端里都能敲命令了界面却还在转黄。
+         * 因此首段输出后 5 秒仍处于 connecting 就强制视为已连接；
+         * 若 5 秒内正常认证完成，markConnected 的状态守卫会让这里变成空操作。
+         */
+        setTimeout(markConnected, 5000);
+      }
+      tail = (tail + data).slice(-160);
+
+      // 认证失败：终止会话
+      if (/permission denied/i.test(data)) {
+        this.failEarly(s, '认证失败：用户名或密码不正确（系统 ssh.exe 返回 Permission denied）');
+        return;
+      }
+
+      // 认证提示出现时自动填入（各自仅一次，避免重复提交）
+      if (!passwordSent && !cfg.privateKeyPath && cfg.password && /password[:：]?\s*$/i.test(tail)) {
+        authPromptSeen = true;
+        passwordSent = true;
+        term.write(cfg.password + '\r');
+      } else if (
+        !passphraseSent &&
+        cfg.privateKeyPath &&
+        cfg.passphrase &&
+        /passphrase[:：]?\s*$/i.test(tail)
+      ) {
+        authPromptSeen = true;
+        passphraseSent = true;
+        term.write(cfg.passphrase + '\r');
+      }
+
+      /**
+       * 连接成功判定：收到「非认证提示」输出时按规则翻转。
+       * 不能像最早那样在第一段输出就翻状态——那通常就是 password 提示，
+       * 认证并未完成，会造成「页签还在闪黄、状态却已变绿」的错乱；
+       * 但识别失手时也不能卡死，上面的 5 秒兜底负责最终收敛。
+       */
+      if (s.status === 'connecting') {
+        const atAuthPrompt = /password[:：]?\s*$/i.test(tail) || /passphrase[:：]?\s*$/i.test(tail);
+        if (
+          shouldMarkConnected({
+            authPromptSeen,
+            passwordSent,
+            passphraseSent,
+            hasPassword: !!cfg.password,
+            hasPrivateKey: !!cfg.privateKeyPath,
+            hasPassphrase: !!cfg.passphrase,
+            tailEndsWithAuthPrompt: atAuthPrompt,
+          })
+        ) {
+          markConnected();
+        }
+      }
+
+      this.pushData(s, Buffer.from(data, 'utf8'));
+    });
+
+    term.onExit(({ exitCode }) => {
+      clearTimeout(watchdog);
+      this.teardown(
+        s,
+        s.closing ? '已断开连接' : `远程会话已结束（退出码 ${exitCode ?? '未知'}）`,
+        s.closing,
+      );
+    });
+  }
+
   private failEarly(s: Session, message: string): void {
+    // 幂等：仅在连接期生效一次。否则看门狗与认证失败同时触发时会发出两遍 error 事件
+    if (s.status !== 'connecting') return;
     this.notice(s, `\x1b[31m✖ 连接失败：${message}\x1b[0m\r\n`);
     this.setStatus(s, 'error', message);
     this.teardown(s, message, false);
@@ -626,6 +822,13 @@ export class SessionManager {
     s.stream = null;
     s.client = null;
 
+    try {
+      s.term?.kill();
+    } catch {
+      /* ignore */
+    }
+    s.term = null;
+
     // 延迟释放端口，确保上面排队的消息已经送达渲染进程
     const port = s.port;
     const sessionId = s.id;
@@ -641,6 +844,45 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   const n = Math.floor(Number(value));
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
+}
+
+/* ---------------------------------------------------------------------- */
+/* 系统 ssh.exe 传输层辅助                                                  */
+/* ---------------------------------------------------------------------- */
+
+/** 系统 OpenSSH 客户端：只认 System32 自带的（PATH 上的 Git 等第三方 ssh 管控表现不一致） */
+function resolveSshExe(): string | null {
+  const system = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'OpenSSH', 'ssh.exe');
+  return fs.existsSync(system) ? system : null;
+}
+
+/** 组装系统 ssh.exe 命令行参数。运行在真实伪终端里，认证提示由传输层自动应答 */
+function buildSshExeArgs(cfg: SshConfig): string[] {
+  const args: string[] = [
+    '-p', String(cfg.port || 22),
+    // 首次连接自动信任并写入 known_hosts，之后由 OpenSSH 自行校验指纹
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', `UserKnownHostsFile=${path.join(app.getPath('userData'), 'known_hosts')}`,
+    '-o', 'NumberOfPasswordPrompts=1',
+    '-o', 'ServerAliveInterval=20',
+    '-o', 'ServerAliveCountMax=4',
+  ];
+
+  const keyPath = cfg.privateKeyPath ? path.resolve(cfg.privateKeyPath.replace(/^"|"$/g, '')) : '';
+  if (keyPath) {
+    if (!fs.existsSync(keyPath)) {
+      throw new Error(`私钥文件不存在：${keyPath}`);
+    }
+    if (path.extname(keyPath).toLowerCase() === '.ppk') {
+      throw new Error('不支持 PuTTY 的 .ppk 私钥，请先用 PuTTYgen 转换为 OpenSSH 格式（.pem/.key）');
+    }
+    args.push('-i', keyPath, '-o', 'IdentitiesOnly=yes');
+  } else if (!cfg.password) {
+    throw new Error('未提供密码或私钥，无法认证');
+  }
+
+  args.push('-l', cfg.username, cfg.host);
+  return args;
 }
 
 /** 把 Node/ssh2 的错误翻译成中文可读信息 */

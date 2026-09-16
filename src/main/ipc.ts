@@ -37,6 +37,8 @@ export const IPC = {
 
   /* ---- 其它 ---- */
   openExternal: 'app:open-external',
+  /** 用系统文件管理器打开本地目录（工具面板「打开编译输出目录」用） */
+  appOpenPath: 'app:open-path',
   appThemeSync: 'app:theme-sync',
   /** 主进程实际加载的应用图标路径（用于确认图标资源可用） */
   appIconPath: 'app:icon-path',

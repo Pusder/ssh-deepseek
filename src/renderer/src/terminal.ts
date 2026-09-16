@@ -3,11 +3,11 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { CanvasAddon } from '@xterm/addon-canvas';
-import type { AppSettings, SessionEndedEvent, SessionStatus, SshConfig, TermSize } from '../../main/types';
+import type { AppSettings, SessionEndedEvent, SessionMeta, SessionStatus, SshConfig, TermSize } from '../../main/types';
 import type { SessionChannel } from './api';
 import { api } from './api';
 import { getTheme } from './themes';
-import { copyText, el, readClipboard, uid } from './util';
+import { copyText, el, quoteRemotePath, readClipboard, uid } from './util';
 
 export interface TerminalTabCallbacks {
   /** 状态变化，用于更新标签徽标 / 状态栏 */
@@ -32,6 +32,18 @@ interface BootstrapMessage {
 interface DataMessage {
   type: 'data';
   data: Uint8Array;
+}
+
+/** 一条挂起中的远端探测（工具面板获取 cwd / 列目录用） */
+interface ProbeWaiter {
+  beginMarker: string;
+  endMarker: string;
+  /** 是否已见到起始标记（之后的内容才算结果） */
+  started: boolean;
+  buffer: string;
+  resolve: (value: string) => void;
+  reject: (err: Error) => void;
+  timer: number;
 }
 
 /**
@@ -82,6 +94,14 @@ export class TerminalTab {
 
   /** 首次收到的终端尺寸由主进程在 createSession 时使用，这里保存最近一次 */
   private lastSize: TermSize = { cols: 80, rows: 24 };
+
+  /** 挂起中的远端探测（工具面板用），输出到达时旁路匹配标记 */
+  private probes: ProbeWaiter[] = [];
+  private probeCounter = 0;
+  private probeDecoder = new TextDecoder('utf8');
+
+  /** 连接初期的状态对账轮询（详见 startStatusPolling） */
+  private reconcileTimer: number | null = null;
 
   constructor(
     public config: SshConfig,
@@ -317,6 +337,9 @@ export class TerminalTab {
 
       // 建立二进制数据通道
       this.channel = api.createSessionChannel(sessionId, (raw) => this.onPortMessage(raw));
+
+      // 连接初期对主进程做短轮询对账（见 startStatusPolling）
+      this.startStatusPolling();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.setStatus('error', message);
@@ -353,6 +376,46 @@ export class TerminalTab {
 
   handleStatus(status: SessionStatus, message?: string): void {
     this.setStatus(status, message);
+  }
+
+  /**
+   * 连接初期对主进程做短轮询对账。
+   *
+   * 状态事件万一因时序问题丢失（例如事件先于 sessionId 登记到达而被丢弃），
+   * 单靠事件流状态就会永久卡在「连接中」——即便主进程早已翻转。这里每 2 秒
+   * 以主进程的权威状态纠偏一次，进入稳定态（connected / 断开 / 错误）即停止。
+   */
+  private startStatusPolling(): void {
+    this.stopStatusPolling();
+    let tries = 0;
+    this.reconcileTimer = window.setInterval(() => {
+      tries++;
+      if (this.disposed || !this.sessionId || tries > 20) {
+        this.stopStatusPolling();
+        return;
+      }
+      void api
+        .listSessions()
+        .then((list) => {
+          const meta = list.find((m) => m.sessionId === this.sessionId);
+          if (!meta) {
+            this.stopStatusPolling();
+            return;
+          }
+          if (meta.status !== this.status) this.setStatus(meta.status);
+          if (meta.status !== 'connecting') this.stopStatusPolling();
+        })
+        .catch(() => {
+          /* 单次失败忽略，下个周期重试 */
+        });
+    }, 2000);
+  }
+
+  private stopStatusPolling(): void {
+    if (this.reconcileTimer !== null) {
+      window.clearInterval(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
   }
 
   /** 彻底销毁：关闭通道、释放 xterm 与渲染器 */
@@ -393,6 +456,13 @@ export class TerminalTab {
     const channel = this.channel;
     this.channel = null;
     this.sessionId = null;
+    this.stopStatusPolling();
+    // 挂起中的探测随之作废
+    for (const waiter of this.probes) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error('会话已断开，探测取消'));
+    }
+    this.probes = [];
     if (!channel) return;
     try {
       channel.close();
@@ -417,6 +487,7 @@ export class TerminalTab {
       this.receivedFrames++;
       this.receivedBytes += payload ? payload.byteLength : 0;
       this.term.write(payload);
+      if (this.probes.length) this.feedProbes(payload);
       this.callbacks.onOutput(this);
       return;
     }
@@ -456,6 +527,142 @@ export class TerminalTab {
   /** 直接发送原始字节（用于 ANSI 应答序列） */
   sendRaw(bytes: number[]): void {
     this.sendWrite(new Uint8Array(bytes));
+  }
+
+  /* ================================================================== */
+  /* 远端探测（工具面板）                                                 */
+  /* ================================================================== */
+
+  /**
+   * 在远端 shell 里执行一条只读探测表达式并取回其输出。
+   *
+   * 实现：向会话写入 `echo <M>_'S'__; <expr>; echo <M>_'E'__`，收集两行输出标记
+   * 之间的内容。两个防误命中设计：
+   * 1. 标记在命令里用引号拆开（`'S'`）——键入命令的回显永远是带引号的原始形态，
+   *    不含连续的标记串；只有真正的 echo 输出行才恰好等于标记。
+   * 2. 标记按「行首」匹配，进一步排除回显/跟踪（set -x）等带前缀的场景。
+   *
+   * 限制：要求当前处于空闲的命令提示符下；若 shell 正有前台任务或输入行有
+   * 残留字符，探测会随之失败（以超时报错，不会执行任何写操作）。
+   */
+  async runProbe(expr: string, timeoutMs = 4000): Promise<string> {
+    if (!this.sessionId || !this.channel) throw new Error('没有活动会话');
+    if (this.status !== 'connected') throw new Error('终端未连接（认证完成前无法探测远端目录）');
+    if (this.disposed) throw new Error('标签已关闭');
+
+    const seq = ++this.probeCounter;
+    const begin = `__DSHQ_${seq}_S__`;
+    const end = `__DSHQ_${seq}_E__`;
+
+    const promise = new Promise<string>((resolve, reject) => {
+      const waiter: ProbeWaiter = {
+        beginMarker: begin,
+        endMarker: end,
+        started: false,
+        buffer: '',
+        resolve,
+        reject,
+        timer: 0,
+      };
+      waiter.timer = window.setTimeout(() => {
+        this.probes = this.probes.filter((w) => w !== waiter);
+        reject(new Error('探测超时：请确认终端停留在命令提示符下'));
+      }, timeoutMs);
+      this.probes.push(waiter);
+    });
+
+    this.sendWrite(`echo __DSHQ_${seq}_'S'__; ${expr}; echo __DSHQ_${seq}_'E'__\r`);
+    return promise;
+  }
+
+  /** 当前工作目录（$PWD，绝对路径；csh 类 shell 不适用） */
+  async probeCwd(): Promise<string> {
+    const out = await this.runProbe(`printf '%s\\n' "$PWD"`);
+    const line = out.split(/\r?\n/).find((l) => l.trim());
+    if (!line) throw new Error('无法获取远端当前目录');
+    return line.trim();
+  }
+
+  /** 远端用户主目录（$HOME，用于本地盘符映射） */
+  async probeHome(): Promise<string> {
+    const out = await this.runProbe(`printf '%s\\n' "$HOME"`);
+    const line = out.split(/\r?\n/).find((l) => l.trim());
+    if (!line) throw new Error('无法获取远端主目录');
+    return line.trim();
+  }
+
+  /**
+   * path 下的子目录列表，返回完整路径（~ 展开后的绝对路径）。
+   * 注意：路径引号必须让 ~ 留在引号外（quoteRemotePath），否则
+   * ls 会把带引号的 '~/MTK' 当成字面目录名去查找，结果永远为空。
+   */
+  async probeSubdirs(path: string): Promise<string[]> {
+    const quoted = quoteRemotePath(path.replace(/\/+$/, ''));
+    const out = await this.runProbe(`ls -1d ${quoted}/*/ 2>/dev/null`);
+    const dirs = out
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\/+\s*$/, '').trim())
+      .filter((l) => l);
+    return [...new Set(dirs)];
+  }
+
+  /** 输出到达时旁路喂给挂起中的探测（仅在有待处理探测时才会进入） */
+  private feedProbes(payload: Uint8Array): void {
+    if (!payload || !payload.byteLength) return;
+    const chunk = this.probeDecoder.decode(payload, { stream: true });
+    for (const waiter of [...this.probes]) {
+      waiter.buffer += chunk;
+      if (waiter.buffer.length > 256 * 1024) {
+        this.probes = this.probes.filter((w) => w !== waiter);
+        clearTimeout(waiter.timer);
+        waiter.reject(new Error('探测输出异常（标记丢失）'));
+        continue;
+      }
+      if (!waiter.started) {
+        // 定位起始标记：要么在缓冲区开头，要么紧跟在某个换行之后（行首锚定）
+        let beginIdx = -1;
+        if (waiter.buffer.startsWith(waiter.beginMarker)) {
+          beginIdx = 0;
+        } else {
+          const at = waiter.buffer.indexOf('\n' + waiter.beginMarker);
+          if (at >= 0) beginIdx = at + 1;
+        }
+        if (beginIdx < 0) continue;
+        waiter.started = true;
+        // 丢弃起始标记所在的整行；行尾可能尚未到达，此时清空缓冲等后续内容即可。
+        // 注意必须从「标记之后」开始找行尾——之前从 \n 本身开始找，
+        // indexOf 返回的还是这个 \n，导致起始行没被丢弃、标记串被当成结果返回。
+        const nl = waiter.buffer.indexOf('\n', beginIdx + waiter.beginMarker.length);
+        waiter.buffer = nl < 0 ? '' : waiter.buffer.slice(nl + 1);
+      }
+      const end =
+        waiter.buffer.startsWith(waiter.endMarker) ? 0 : waiter.buffer.indexOf('\n' + waiter.endMarker);
+      if (end < 0) continue;
+      this.finishProbe(waiter, waiter.buffer.slice(0, end).replace(/\r/g, ''));
+    }
+  }
+
+  private finishProbe(waiter: ProbeWaiter, value: string): void {
+    this.probes = this.probes.filter((w) => w !== waiter);
+    clearTimeout(waiter.timer);
+    waiter.resolve(value);
+  }
+
+  /** 向远端发送一行命令并执行（工具面板「发送到终端」用） */
+  sendLine(text: string): void {
+    if (this.status !== 'connected') return;
+    this.sendWrite(text + '\r');
+    this.focus();
+  }
+
+  /**
+   * 向终端输入文本但不按回车（工具面板「单编快捷命令」用）：
+   * 命令落在远端行编辑器里，用户检查/修改后自己按 Enter 执行。
+   */
+  typeText(text: string): void {
+    if (this.status !== 'connected' || !text) return;
+    this.sendWrite(text);
+    this.focus();
   }
 
   private sendResize(cols: number, rows: number): void {
@@ -699,6 +906,9 @@ export class TerminalTab {
   async paste(): Promise<void> {
     const text = await readClipboard();
     if (text) this.term.paste(text);
+    // 右键菜单粘贴后焦点会停在已关闭的菜单层，xterm 输入框拿不回来，
+    // 表现为必须手动点一下终端才能输入 —— 这里统一把焦点拿回
+    this.focus();
   }
 
   /**

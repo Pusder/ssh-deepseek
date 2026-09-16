@@ -265,6 +265,9 @@ class ConfigStore {
     next.fontSize = Math.min(40, Math.max(8, Math.round(next.fontSize)));
     next.lineHeight = Math.min(2, Math.max(1, next.lineHeight));
     next.scrollback = Math.min(200000, Math.max(500, Math.round(next.scrollback)));
+    if (next.transport !== 'systemSsh') next.transport = 'ssh2';
+    next.sidebarCollapsed = !!next.sidebarCollapsed;
+    next.showToolsPanel = !!next.showToolsPanel;
     this.data.settings = next;
     this.scheduleFlush();
     return next;

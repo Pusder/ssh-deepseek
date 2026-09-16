@@ -280,6 +280,15 @@ export function openSettingsDialog(current: AppSettings): Promise<SettingsDialog
     const blinkCheckbox = el('input', { attrs: { type: 'checkbox' } });
     blinkCheckbox.checked = current.cursorBlink;
 
+    const transportSelect = el('select');
+    for (const [label, value] of [
+      ['内置 ssh2 库（默认）', 'ssh2'],
+      ['系统 ssh.exe（受管控网络可尝试）', 'systemSsh'],
+    ]) {
+      transportSelect.appendChild(el('option', { text: label, attrs: { value } }));
+    }
+    transportSelect.value = current.transport;
+
     const hostListBox = el('div', { className: 'host-list' });
     const refreshHosts = async () => {
       const hosts = await api.listKnownHosts();
@@ -324,6 +333,7 @@ export function openSettingsDialog(current: AppSettings): Promise<SettingsDialog
             draft.scrollback = Number(scrollbackInput.value) || current.scrollback;
             draft.cursorStyle = cursorSelect.value as AppSettings['cursorStyle'];
             draft.cursorBlink = blinkCheckbox.checked;
+            draft.transport = transportSelect.value as AppSettings['transport'];
             saved = true;
             resolve({ settings: draft, saved });
           },
@@ -361,6 +371,12 @@ export function openSettingsDialog(current: AppSettings): Promise<SettingsDialog
             ],
           }),
           textField('回看缓冲行数', scrollbackInput, '修改后对新标签立即生效，已有标签也会同步调整'),
+          el('div', { className: 'section-title', text: '连接' }),
+          textField(
+            'SSH 传输层',
+            transportSelect,
+            '公司安全软件若只放行系统 ssh 客户端，可切换为系统 ssh.exe（由 Windows 自带的 OpenSSH 发起连接，密码自动填充）。切换后对新连接生效；该模式下连接期间调整窗口尺寸暂不生效。',
+          ),
           el('div', { className: 'section-title', text: '已信任的主机指纹' }),
           el('div', {
             className: 'hint',
